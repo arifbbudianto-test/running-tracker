@@ -3,14 +3,17 @@
 import { useState, useRef } from 'react';
 import { UploadCloud, FileText, CheckCircle2, AlertTriangle, HelpCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { parseTCX } from '../utils/tcxParser';
+import { HRZoneSettings } from './RunningCharts';
 
 interface ImportTabProps {
   onImportSuccess: (file: File) => Promise<void>;
   onResetData: () => void;
   onLoadSample: () => void;
+  hrSettings: HRZoneSettings;
+  onHRSettingsChange: (settings: HRZoneSettings) => void;
 }
 
-export default function ImportTab({ onImportSuccess, onResetData, onLoadSample }: ImportTabProps) {
+export default function ImportTab({ onImportSuccess, onResetData, onLoadSample, hrSettings, onHRSettingsChange }: ImportTabProps) {
   const [dragActive, setDragActive] = useState(false);
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error'; message: string }>({
     type: 'idle',
@@ -149,6 +152,71 @@ export default function ImportTab({ onImportSuccess, onResetData, onLoadSample }
             <span className="text-zinc-200">Strava</span>: Open Strava on mobile browser, view an activity, click "Export TCX" in the options panel.
           </li>
         </ul>
+      </div>
+
+      {/* Biometric Profile & HR Zones Settings */}
+      <div className="bg-zinc-900/40 border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+        <div>
+          <h4 className="text-xs font-bold text-zinc-300">Biometric Profile & HR Zones</h4>
+          <p className="text-[9px] text-zinc-500 mt-0.5 leading-normal">
+            Customize how heart rate zones are calculated based on your health profile.
+          </p>
+        </div>
+
+        <div className="space-y-3 text-xs">
+          {/* Method Selection */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Calculation Method</label>
+            <select
+              value={hrSettings.method}
+              onChange={(e) => onHRSettingsChange({ ...hrSettings, method: e.target.value as any })}
+              className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-300 focus:outline-none focus:border-cyan-500 font-semibold"
+            >
+              <option value="max_hr">Standard (% Max HR)</option>
+              <option value="karvonen">Karvonen (Heart Rate Reserve)</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Age Input */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Age</label>
+              <input
+                type="number"
+                value={hrSettings.age}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 0;
+                  const estimatedMax = Math.max(100, 220 - val);
+                  onHRSettingsChange({ ...hrSettings, age: val, maxHR: estimatedMax });
+                }}
+                className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-300 focus:outline-none focus:border-cyan-500 font-semibold font-mono"
+              />
+            </div>
+
+            {/* Resting HR Input */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Resting HR (bpm)</label>
+              <input
+                type="number"
+                value={hrSettings.restingHR}
+                onChange={(e) => onHRSettingsChange({ ...hrSettings, restingHR: parseInt(e.target.value) || 0 })}
+                className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-300 focus:outline-none focus:border-cyan-500 font-semibold font-mono"
+                disabled={hrSettings.method === 'max_hr'}
+              />
+            </div>
+          </div>
+
+          {/* Max HR Input */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Custom Max HR (bpm)</label>
+            <input
+              type="number"
+              value={hrSettings.maxHR}
+              onChange={(e) => onHRSettingsChange({ ...hrSettings, maxHR: parseInt(e.target.value) || 0 })}
+              className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-300 focus:outline-none focus:border-cyan-500 font-semibold font-mono"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Local Storage Controls */}

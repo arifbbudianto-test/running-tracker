@@ -13,9 +13,16 @@ import {
 } from 'recharts';
 import { Trackpoint } from '../utils/tcxParser';
 
+export interface HRZoneSettings {
+  age: number;
+  maxHR: number;
+  restingHR: number;
+  method: 'max_hr' | 'karvonen';
+}
+
 interface RunningChartsProps {
   trackpoints: Trackpoint[];
-  maxHR?: number;
+  hrSettings: HRZoneSettings;
 }
 
 // Simple Moving Average (SMA) helper to smooth out data and prevent wiggling/jitter
@@ -45,7 +52,7 @@ function smoothSeries(
   return result;
 }
 
-export default function RunningCharts({ trackpoints, maxHR = 190 }: RunningChartsProps) {
+export default function RunningCharts({ trackpoints, hrSettings }: RunningChartsProps) {
   const [activeTab, setActiveTab] = useState<'all' | 'hr' | 'cadence'>('all');
 
   // Format trackpoints for Recharts and downsample if too large
@@ -90,31 +97,48 @@ export default function RunningCharts({ trackpoints, maxHR = 190 }: RunningChart
     return formatted;
   }, [trackpoints]);
 
-  // Calculate HR Zones distribution
+  // Calculate HR Zones distribution based on method
   const hrZones = useMemo(() => {
-    // Determine max heart rate (use activity max HR, or default 190)
-    const hrMax = maxHR || 190;
-    
-    // Zone ranges (percentages of max HR)
+    const hrMax = hrSettings.maxHR;
+    const hrRest = hrSettings.restingHR;
+    const isKarvonen = hrSettings.method === 'karvonen';
+
+    const getThresholdBpm = (pct: number) => {
+      if (isKarvonen) {
+        return Math.round(hrRest + pct * (hrMax - hrRest));
+      }
+      return Math.round(pct * hrMax);
+    };
+
+    const z5Min = getThresholdBpm(0.90);
+    const z4Min = getThresholdBpm(0.80);
+    const z3Min = getThresholdBpm(0.70);
+    const z2Min = getThresholdBpm(0.60);
+
     const zones = [
-      { name: 'Z5 Anaerobic', min: 0.90, max: 1.00, color: 'bg-rose-500', textColor: 'text-rose-400', count: 0, desc: '> 90%' },
-      { name: 'Z4 Threshold', min: 0.80, max: 0.90, color: 'bg-orange-500', textColor: 'text-orange-400', count: 0, desc: '80% - 90%' },
-      { name: 'Z3 Tempo', min: 0.70, max: 0.80, color: 'bg-amber-500', textColor: 'text-amber-400', count: 0, desc: '70% - 80%' },
-      { name: 'Z2 Aerobic', min: 0.60, max: 0.70, color: 'bg-emerald-500', textColor: 'text-emerald-400', count: 0, desc: '60% - 70%' },
-      { name: 'Z1 Warm Up', min: 0.00, max: 0.60, color: 'bg-blue-500', textColor: 'text-blue-400', count: 0, desc: '< 60%' },
+      { name: 'Z5 Anaerobic', minBpm: z5Min, color: 'bg-rose-500', textColor: 'text-rose-400', count: 0, desc: `>= ${z5Min} bpm` },
+      { name: 'Z4 Threshold', minBpm: z4Min, color: 'bg-orange-500', textColor: 'text-orange-400', count: 0, desc: `${z4Min} - ${z5Min - 1} bpm` },
+      { name: 'Z3 Tempo', minBpm: z3Min, color: 'bg-amber-500', textColor: 'text-amber-400', count: 0, desc: `${z3Min} - ${z4Min - 1} bpm` },
+      { name: 'Z2 Aerobic', minBpm: z2Min, color: 'bg-emerald-500', textColor: 'text-emerald-400', count: 0, desc: `${z2Min} - ${z3Min - 1} bpm` },
+      { name: 'Z1 Warm Up', minBpm: 0, color: 'bg-blue-500', textColor: 'text-blue-400', count: 0, desc: `< ${z2Min} bpm` },
     ];
 
     let totalPoints = 0;
     trackpoints.forEach((tp) => {
       if (tp.heartRate && tp.heartRate > 0) {
         totalPoints++;
-        const hrPercent = tp.heartRate / hrMax;
+        const hr = tp.heartRate;
         
-        for (let i = 0; i < zones.length; i++) {
-          if (hrPercent >= zones[i].min) {
-            zones[i].count++;
-            break;
-          }
+        if (hr >= z5Min) {
+          zones[0].count++;
+        } else if (hr >= z4Min) {
+          zones[1].count++;
+        } else if (hr >= z3Min) {
+          zones[2].count++;
+        } else if (hr >= z2Min) {
+          zones[3].count++;
+        } else {
+          zones[4].count++;
         }
       }
     });
@@ -124,7 +148,7 @@ export default function RunningCharts({ trackpoints, maxHR = 190 }: RunningChart
       percentage: totalPoints > 0 ? Math.round((z.count / totalPoints) * 100) : 0,
       durationMin: totalPoints > 0 ? Math.round((z.count * (trackpoints.length / totalPoints)) / 60) : 0,
     }));
-  }, [trackpoints, maxHR]);
+  }, [trackpoints, hrSettings]);
 
   const customTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -311,7 +335,7 @@ export default function RunningCharts({ trackpoints, maxHR = 190 }: RunningChart
 
         <div className="mt-6 border-t border-zinc-800/80 pt-4 text-center">
           <p className="text-[10px] text-zinc-500 font-mono">
-            Calculated using standard HR thresholds (Max HR: {maxHR} bpm)
+            Method: {hrSettings.method === 'karvonen' ? 'Karvonen (HR Reserve)' : 'Standard (% Max HR)'} | Max: {hrSettings.maxHR} bpm {hrSettings.method === 'karvonen' && `| Rest: ${hrSettings.restingHR} bpm`}
           </p>
         </div>
       </div>

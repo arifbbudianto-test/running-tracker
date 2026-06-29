@@ -221,3 +221,70 @@ export function parseTCX(tcxText: string): ParsedActivity {
 function cadenceFilter(cad: number | undefined): cad is number {
   return cad !== undefined && cad > 0;
 }
+
+export interface KilometreSplit {
+  splitNumber: number;
+  timeSeconds: number;
+  distanceMeters: number;
+  pace: string;
+  avgHeartRate?: number;
+  avgCadence?: number;
+}
+
+export function calculateKmSplits(trackpoints: Trackpoint[]): KilometreSplit[] {
+  if (trackpoints.length === 0) return [];
+  
+  const splits: KilometreSplit[] = [];
+  let splitStartIdx = 0;
+  let splitTarget = 1000; // meters
+  
+  for (let i = 0; i < trackpoints.length; i++) {
+    const tp = trackpoints[i];
+    const distance = tp.distance || 0;
+    
+    const isLastPoint = i === trackpoints.length - 1;
+    if (distance >= splitTarget || isLastPoint) {
+      const segmentPoints = trackpoints.slice(splitStartIdx, i + 1);
+      if (segmentPoints.length > 1) {
+        const startTime = new Date(segmentPoints[0].time).getTime();
+        const endTime = new Date(segmentPoints[segmentPoints.length - 1].time).getTime();
+        const durationSec = (endTime - startTime) / 1000;
+        
+        const startDist = segmentPoints[0].distance || 0;
+        const endDist = segmentPoints[segmentPoints.length - 1].distance || 0;
+        const distDiffMeters = endDist - startDist;
+        const distDiffKm = distDiffMeters / 1000;
+        
+        if (durationSec > 0 && distDiffKm > 0) {
+          const hrs = segmentPoints.map(p => p.heartRate).filter((hr): hr is number => hr !== undefined && hr > 0);
+          const avgHR = hrs.length > 0 ? Math.round(hrs.reduce((sum, h) => sum + h, 0) / hrs.length) : undefined;
+          
+          const cads = segmentPoints.map(p => p.cadence).filter((c): c is number => c !== undefined && c > 0);
+          let avgCad = cads.length > 0 ? Math.round(cads.reduce((sum, c) => sum + c, 0) / cads.length) : undefined;
+          if (avgCad !== undefined && avgCad > 0 && avgCad < 120) {
+            avgCad = avgCad * 2;
+          }
+          
+          const paceTotalMin = (durationSec / 60) / distDiffKm;
+          const paceMin = Math.floor(paceTotalMin);
+          const paceSec = Math.round((paceTotalMin - paceMin) * 60);
+          const paceStr = `${paceMin}:${paceSec < 10 ? '0' : ''}${paceSec}`;
+          
+          splits.push({
+            splitNumber: splits.length + 1,
+            timeSeconds: durationSec,
+            distanceMeters: distDiffMeters,
+            pace: paceStr,
+            avgHeartRate: avgHR,
+            avgCadence: avgCad
+          });
+        }
+      }
+      
+      splitStartIdx = i;
+      splitTarget += 1000;
+    }
+  }
+  
+  return splits;
+}

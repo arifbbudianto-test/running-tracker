@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { 
   Activity, 
@@ -16,14 +16,14 @@ import {
   Smartphone,
   Info
 } from 'lucide-react';
-import { parseTCX, ParsedActivity } from '../utils/tcxParser';
+import { parseTCX, ParsedActivity, calculateKmSplits } from '../utils/tcxParser';
 import { 
   getActivitiesFromStorage, 
   saveActivityToStorage, 
   deleteActivityFromStorage, 
   clearAllStorage 
 } from '../utils/storage';
-import RunningCharts from './RunningCharts';
+import RunningCharts, { HRZoneSettings } from './RunningCharts';
 import HistoryTab from './HistoryTab';
 import TrendsTab from './TrendsTab';
 import ImportTab from './ImportTab';
@@ -51,12 +51,18 @@ export default function Dashboard({ initialActivity }: DashboardProps) {
   const [activities, setActivities] = useState<ParsedActivity[]>([]);
   const [selectedActivity, setSelectedActivity] = useState<ParsedActivity | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  
+  const [hrSettings, setHRSettings] = useState<HRZoneSettings>({
+    age: 30,
+    maxHR: 190,
+    restingHR: 60,
+    method: 'max_hr'
+  });
 
-  // Load activities from local storage on mount and register Service Worker
+  // Load activities and register service worker on mount
   useEffect(() => {
     let stored = getActivitiesFromStorage();
     if (stored.length === 0) {
-      // Seed with initial activity if empty
       stored = saveActivityToStorage(initialActivity);
     }
     setActivities(stored);
@@ -69,6 +75,33 @@ export default function Dashboard({ initialActivity }: DashboardProps) {
         .catch((err) => console.error('Service Worker registration failed:', err));
     }
   }, [initialActivity]);
+
+  // Load HR Settings from storage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('velocity_hr_settings');
+      if (saved) {
+        try {
+          setHRSettings(JSON.parse(saved));
+        } catch (e) {
+          console.error('Failed to parse HR settings', e);
+        }
+      }
+    }
+  }, []);
+
+  const handleHRSettingsChange = (newSettings: HRZoneSettings) => {
+    setHRSettings(newSettings);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('velocity_hr_settings', JSON.stringify(newSettings));
+    }
+  };
+
+  // Compute 1km splits
+  const kmSplits = useMemo(() => {
+    if (!selectedActivity) return [];
+    return calculateKmSplits(selectedActivity.trackpoints);
+  }, [selectedActivity]);
 
   // Handle new TCX upload
   const handleImportSuccess = async (file: File) => {
@@ -330,26 +363,45 @@ export default function Dashboard({ initialActivity }: DashboardProps) {
                   {/* Telemetry Charts */}
                   <div className="space-y-2">
                     <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider px-1">Sensors Telemetry Curves</h3>
-                    <RunningCharts trackpoints={selectedActivity.trackpoints} maxHR={selectedActivity.summary.maxHeartRate} />
+                    <RunningCharts trackpoints={selectedActivity.trackpoints} hrSettings={hrSettings} />
                   </div>
                 </div>
 
-                {/* Laps List */}
-                {selectedActivity.laps.length > 0 && (
+                {/* 1km Splits List */}
+                {kmSplits.length > 0 && (
                   <div className="bg-zinc-900/40 border border-zinc-850 p-4 rounded-2xl space-y-3">
-                    <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">Lap Splits</h3>
-                    <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
-                      {selectedActivity.laps.map((lap, idx) => (
-                        <div key={idx} className="flex justify-between items-center bg-zinc-950/60 border border-zinc-900 p-2.5 rounded-xl text-xs font-semibold">
-                          <span className="text-zinc-500 font-extrabold">Lap #{idx + 1}</span>
-                          <span className="text-zinc-200 font-mono">{formatDuration(lap.totalTimeSeconds)}</span>
-                          <span className="text-zinc-200 font-mono">{lap.distanceMeters} m</span>
-                          <span className="text-rose-400 font-mono flex items-center gap-0.5">
-                            <Heart className="h-3 w-3 shrink-0" />
-                            {lap.avgHeartRate || '--'}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">1 km Splits</h3>
+                      <span className="text-[9px] text-zinc-500 font-mono">Segmented per kilometer</span>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px] font-semibold text-zinc-300 text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-zinc-850 text-[9px] uppercase tracking-wider text-zinc-500 font-bold">
+                            <th className="py-2 pr-2">Split</th>
+                            <th className="py-2 px-2 text-center">Pace</th>
+                            <th className="py-2 px-2 text-center">Avg HR</th>
+                            <th className="py-2 pl-2 text-center">Cadence</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-850/60 font-mono">
+                          {kmSplits.map((split, idx) => (
+                            <tr key={idx} className="hover:bg-zinc-950/20 transition-colors">
+                              <td className="py-2.5 pr-2 font-bold text-zinc-400">
+                                #{split.splitNumber} <span className="text-[9px] text-zinc-600 font-normal">({split.distanceMeters >= 990 ? '1.0' : (split.distanceMeters/1000).toFixed(1)}k)</span>
+                              </td>
+                              <td className="py-2.5 px-2 text-center text-zinc-200">{split.pace}</td>
+                              <td className="py-2.5 px-2 text-center text-rose-400">
+                                {split.avgHeartRate ? `${split.avgHeartRate} bpm` : '--'}
+                              </td>
+                              <td className="py-2.5 pl-2 text-center text-emerald-400">
+                                {split.avgCadence ? `${split.avgCadence} spm` : '--'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )}
@@ -381,6 +433,8 @@ export default function Dashboard({ initialActivity }: DashboardProps) {
             onImportSuccess={handleImportSuccess}
             onResetData={handleResetData}
             onLoadSample={handleLoadSample}
+            hrSettings={hrSettings}
+            onHRSettingsChange={handleHRSettingsChange}
           />
         )}
 
