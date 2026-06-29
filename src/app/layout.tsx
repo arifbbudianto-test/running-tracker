@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Velocity | Biometric Running Dashboard",
   description: "Visualize and analyze Garmin TCX running telemetry with interactive split mapping, cadence, and heart rate metrics.",
+  manifest: "./manifest.json",
 };
 
 export default function RootLayout({

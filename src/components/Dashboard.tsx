@@ -52,7 +52,7 @@ export default function Dashboard({ initialActivity }: DashboardProps) {
   const [selectedActivity, setSelectedActivity] = useState<ParsedActivity | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
-  // Load activities from local storage on mount
+  // Load activities from local storage on mount and register Service Worker
   useEffect(() => {
     let stored = getActivitiesFromStorage();
     if (stored.length === 0) {
@@ -61,6 +61,13 @@ export default function Dashboard({ initialActivity }: DashboardProps) {
     }
     setActivities(stored);
     setSelectedActivity(stored[0] || initialActivity);
+
+    // Register PWA service worker
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js')
+        .then((reg) => console.log('Service Worker registered:', reg.scope))
+        .catch((err) => console.error('Service Worker registration failed:', err));
+    }
   }, [initialActivity]);
 
   // Handle new TCX upload
