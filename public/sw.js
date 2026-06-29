@@ -1,4 +1,4 @@
-const CACHE_NAME = 'velocity-v1';
+const CACHE_NAME = 'velocity-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -35,30 +35,59 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((response) => {
-        if (!response || response.status !== 200) {
-          // If it's a map tile, cache it for offline usage
-          if (event.request.url.includes('basemaps.cartocdn.com') || event.request.url.includes('openstreetmap.org')) {
+  const url = event.request.url;
+  const isWebAsset = 
+    event.request.mode === 'navigate' || 
+    url.includes('.js') || 
+    url.includes('.css') || 
+    url.includes('manifest.json') || 
+    url.includes('activity.tcx');
+
+  if (isWebAsset) {
+    // Network-First strategy for core logic/styles to ensure prompt updates
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.status === 200) {
             const responseClone = response.clone();
-            caches.open('map-tiles').then((cache) => {
+            caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, responseClone);
             });
           }
           return response;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cachedResponse) => {
+            return cachedResponse || Response.error();
+          });
+        })
+    );
+  } else {
+    // Cache-First strategy for images, icons, and Leaflet map tiles
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
         }
+        return fetch(event.request).then((response) => {
+          if (!response || response.status !== 200) {
+            if (url.includes('basemaps.cartocdn.com') || url.includes('openstreetmap.org')) {
+              const responseClone = response.clone();
+              caches.open('map-tiles').then((cache) => {
+                cache.put(event.request, responseClone);
+              });
+            }
+            return response;
+          }
 
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
+
+          return response;
         });
-
-        return response;
-      });
-    })
-  );
+      })
+    );
+  }
 });
